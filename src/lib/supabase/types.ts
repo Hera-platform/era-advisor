@@ -35,7 +35,7 @@ export interface FinancialData {
   revenue?: Array<{ year: number; value: number }>;
   ebitda?: Array<{ year: number; value: number }>;
   ebitda_margin?: number;
-  growth_rate?: number;
+  revenue_growth_yoy?: number;
   adjustments?: string[];
 }
 

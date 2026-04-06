@@ -15,6 +15,8 @@ export interface ToolContext {
   // Mutable — tools write into these during execution
   resolvedSellerId?: string;
   createdDealId?: string;
+  // Cache enrichment results so create_deal can save them to the deal
+  lastEnrichmentResult?: Record<string, unknown>;
 }
 
 export function createAdvisorTools(context: ToolContext) {
@@ -33,7 +35,16 @@ export function createAdvisorTools(context: ToolContext) {
       }),
       execute: async (input) => {
         console.log("[ERA] run_enrichment called:", input);
-        return runEnrichmentPipeline(input.company_name, input.partita_iva);
+        const result = await runEnrichmentPipeline(
+          input.company_name,
+          input.partita_iva
+        );
+        // Cache for create_deal to save to the deal record
+        context.lastEnrichmentResult = result as unknown as Record<
+          string,
+          unknown
+        >;
+        return result;
       },
     }),
 
@@ -63,6 +74,33 @@ export function createAdvisorTools(context: ToolContext) {
           input.partita_iva
         );
         context.createdDealId = deal.id;
+
+        // Save enrichment data to the deal if available
+        if (context.lastEnrichmentResult) {
+          const e = context.lastEnrichmentResult;
+          await updateDeal(deal.id, {
+            enrichment_data: e,
+            company_profile: {
+              sector: e.sector,
+              subsector: e.subsector,
+              description: e.description,
+              location: e.location,
+              employees: e.employees,
+              management: e.management,
+              founded: e.founded_year,
+              legal_form: e.legal_form,
+              website: e.website,
+            },
+            financial_data: {
+              revenue: e.revenue,
+              ebitda: e.ebitda,
+              ebitda_margin: e.ebitda_margin,
+              revenue_growth_yoy: e.revenue_growth_yoy,
+            },
+          }).catch((err) =>
+            console.error("[ERA] Failed to save enrichment to deal:", err)
+          );
+        }
 
         return {
           deal_id: deal.id,

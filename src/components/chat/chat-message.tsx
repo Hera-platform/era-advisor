@@ -8,9 +8,17 @@ interface ChatMessageProps {
   role: "user" | "assistant";
   content: string;
   toolResults?: ToolResult[];
+  isAuthenticated?: boolean;
+  onDownload?: () => void;
 }
 
-export function ChatMessage({ role, content, toolResults }: ChatMessageProps) {
+export function ChatMessage({
+  role,
+  content,
+  toolResults,
+  isAuthenticated = false,
+  onDownload = () => {},
+}: ChatMessageProps) {
   // Clean up any "Researching..." placeholders once we have tool results
   let displayContent = content;
   if (toolResults && toolResults.length > 0) {
@@ -45,7 +53,12 @@ export function ChatMessage({ role, content, toolResults }: ChatMessageProps) {
       {toolResults &&
         toolResults.map((tr, idx) => (
           <div key={idx} className="w-full max-w-[85%] md:max-w-[75%]">
-            <ToolResultCard toolName={tr.toolName} result={tr.result} />
+            <ToolResultCard
+              toolName={tr.toolName}
+              result={tr.result}
+              isAuthenticated={isAuthenticated}
+              onDownload={onDownload}
+            />
           </div>
         ))}
     </div>

@@ -280,6 +280,13 @@ export function ChatContainer() {
             role={message.role}
             content={message.content}
             toolResults={message.toolResults}
+            isAuthenticated={!!user}
+            onDownload={() => {
+              if (!user) {
+                setAuthGateTrigger("download_request");
+                setShowAuthGate(true);
+              }
+            }}
           />
         ))}
         {isLoading &&

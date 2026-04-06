@@ -8,13 +8,22 @@ import type {
   FinancialYear,
 } from "@/lib/enrichment/types";
 import { SOURCE_LABELS, SOURCE_COLORS } from "@/lib/enrichment/types";
+import { TeaserPreview } from "./teaser-preview";
+import type { TeaserContent } from "@/lib/supabase/types";
 
 interface ToolResultCardProps {
   toolName: string;
   result: Record<string, unknown>;
+  isAuthenticated: boolean;
+  onDownload: () => void;
 }
 
-export function ToolResultCard({ toolName, result }: ToolResultCardProps) {
+export function ToolResultCard({
+  toolName,
+  result,
+  isAuthenticated,
+  onDownload,
+}: ToolResultCardProps) {
   if (toolName === "run_enrichment") {
     return <EnrichmentCard data={result as unknown as EnrichmentResult} />;
   }
@@ -22,7 +31,33 @@ export function ToolResultCard({ toolName, result }: ToolResultCardProps) {
     return <DealCreatedCard data={result} />;
   }
   if (toolName === "generate_teaser") {
-    return <MaterialCard type="Teaser" data={result} />;
+    if (result.status === "error") {
+      return (
+        <GenerationErrorCard
+          type="Teaser"
+          error={String(result.error ?? "Unknown error")}
+        />
+      );
+    }
+    const content: TeaserContent = {
+      headline: String(result.headline ?? ""),
+      description: String(result.description ?? ""),
+      highlights: Array.isArray(result.highlights)
+        ? result.highlights.map(String)
+        : [],
+      financial_summary: String(result.financial_summary ?? ""),
+      opportunity: String(result.opportunity ?? ""),
+      process: String(result.process ?? ""),
+    };
+    return (
+      <TeaserPreview
+        content={content}
+        materialId={String(result.material_id ?? "")}
+        status={String(result.status ?? "draft")}
+        isAuthenticated={isAuthenticated}
+        onDownload={onDownload}
+      />
+    );
   }
   if (toolName === "generate_info_memo") {
     return <MaterialCard type="Information Memorandum" data={result} />;
@@ -336,6 +371,41 @@ function DealCreatedCard({ data }: { data: Record<string, unknown> }) {
         <div className="text-xs text-gray-text">
           {String(data.company_name || "")} — {String(data.status || "")}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Generation Error Card ─────────────────────────────────
+function GenerationErrorCard({
+  type,
+  error,
+}: {
+  type: string;
+  error: string;
+}) {
+  return (
+    <div className="bg-navy-light border border-red-500/20 rounded-xl px-4 py-3 mt-2 flex items-center gap-3">
+      <div className="w-8 h-8 rounded-full bg-red-500/15 flex items-center justify-center flex-shrink-0">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          className="text-red-400"
+        >
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+      </div>
+      <div>
+        <div className="text-sm font-medium text-white">
+          {type} Generation Failed
+        </div>
+        <div className="text-xs text-gray-text mt-0.5">{error}</div>
       </div>
     </div>
   );

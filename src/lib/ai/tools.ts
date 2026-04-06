@@ -6,6 +6,7 @@ import {
   createDeal,
   updateDeal,
 } from "@/lib/supabase/deals";
+import { generateTeaserContent } from "@/lib/ai/teaser-generator";
 
 export interface ToolContext {
   sessionToken: string;
@@ -136,18 +137,37 @@ export function createAdvisorTools(context: ToolContext) {
         deal_id: z.string().describe("The deal ID to generate a teaser for"),
       }),
       execute: async (input) => {
-        // Stub: will generate real teaser in C1
-        console.log("[ERA] generate_teaser called:", input);
-        return {
-          deal_id: input.deal_id,
-          material_id: crypto.randomUUID(),
-          type: "teaser",
-          status: "draft",
-          message:
-            "Teaser generated successfully. The seller can review it inline.",
-          preview:
-            "Anonymous teaser prepared for a Northern Italian industrial company.",
-        };
+        console.log("[ERA] generate_teaser called:", input.deal_id);
+        try {
+          const { material_id, content, status } =
+            await generateTeaserContent(input.deal_id);
+
+          // Advance deal status
+          await updateDeal(input.deal_id, { status: "materials_draft" });
+
+          return {
+            deal_id: input.deal_id,
+            material_id,
+            type: "teaser" as const,
+            status,
+            headline: content.headline,
+            description: content.description,
+            highlights: content.highlights,
+            financial_summary: content.financial_summary,
+            opportunity: content.opportunity,
+            process: content.process,
+          };
+        } catch (err) {
+          console.error("[ERA] generate_teaser failed:", err);
+          return {
+            deal_id: input.deal_id,
+            material_id: null,
+            type: "teaser" as const,
+            status: "error" as const,
+            error:
+              err instanceof Error ? err.message : "Generation failed",
+          };
+        }
       },
     }),
 

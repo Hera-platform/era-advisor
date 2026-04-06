@@ -1,5 +1,5 @@
 import { createServiceClient } from "./service";
-import type { ChatMessage } from "./types";
+import type { ChatMessage, TeaserContent, InfoMemoContent } from "./types";
 
 /**
  * Service-layer functions for deal and conversation operations.
@@ -149,4 +149,58 @@ export async function migrateAnonymousToAuthenticated(
       is_anonymous: false,
     })
     .eq("id", anonymousSellerId);
+}
+
+// ── Materials ────────────────────────────────────────────
+
+export async function saveMaterial(
+  dealId: string,
+  type: "teaser" | "info_memo",
+  content: TeaserContent | InfoMemoContent
+) {
+  const db = createServiceClient();
+
+  // Determine next version number
+  const { data: existing } = await db
+    .from("materials")
+    .select("version")
+    .eq("deal_id", dealId)
+    .eq("type", type)
+    .order("version", { ascending: false })
+    .limit(1);
+
+  const nextVersion =
+    existing && existing.length > 0 ? existing[0].version + 1 : 1;
+
+  const { data, error } = await db
+    .from("materials")
+    .insert({
+      deal_id: dealId,
+      type,
+      version: nextVersion,
+      content,
+      status: "draft",
+      pdf_url: null,
+    })
+    .select()
+    .single();
+
+  if (error) throw new Error(`Failed to save material: ${error.message}`);
+  return data;
+}
+
+export async function getLatestMaterial(
+  dealId: string,
+  type: "teaser" | "info_memo"
+) {
+  const db = createServiceClient();
+  const { data } = await db
+    .from("materials")
+    .select("*")
+    .eq("deal_id", dealId)
+    .eq("type", type)
+    .order("version", { ascending: false })
+    .limit(1)
+    .single();
+  return data;
 }

@@ -1,5 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
+import { runEnrichmentPipeline } from "@/lib/enrichment/pipeline";
 
 export const advisorTools = {
   run_enrichment: tool({
@@ -13,46 +14,8 @@ export const advisorTools = {
         .describe("Italian tax ID (P.IVA) if provided"),
     }),
     execute: async (input) => {
-      // Stub: will be replaced with real enrichment pipeline in B3
       console.log("[ERA] run_enrichment called:", input);
-      return {
-        company_name: input.company_name,
-        legal_name: `${input.company_name} Srl`,
-        sector: "Manufacturing",
-        subsector: "Industrial Components",
-        location: "Milan, Italy",
-        founded_year: 2005,
-        legal_form: "Srl",
-        employees: 85,
-        description: `${input.company_name} is a mid-sized Italian manufacturer specializing in precision industrial components. The company serves clients across the automotive, aerospace, and energy sectors, with a strong reputation for quality and reliability. Founded in 2005, the company has grown steadily through a combination of organic growth and product line expansion.`,
-        revenue: [
-          { year: 2022, value: 10100000 },
-          { year: 2023, value: 11200000 },
-          { year: 2024, value: 12300000 },
-        ],
-        ebitda: [
-          { year: 2022, value: 1720000 },
-          { year: 2023, value: 1960000 },
-          { year: 2024, value: 2214000 },
-        ],
-        ebitda_margin: 18.0,
-        revenue_growth_yoy: 9.8,
-        shareholders: [
-          { name: "Marco Rossi", share: 65, role: "CEO & Founder" },
-          { name: "Anna Rossi", share: 35, role: "CFO" },
-        ],
-        management: [
-          { name: "Marco Rossi", role: "CEO" },
-          { name: "Anna Rossi", role: "CFO" },
-          { name: "Luca Bianchi", role: "COO" },
-        ],
-        website: `www.${input.company_name.toLowerCase().replace(/\s+/g, "")}.it`,
-        sources: ["AIDA", "Company Website", "News"],
-        enriched_at: new Date().toISOString(),
-        confidence: "medium" as const,
-        _note:
-          "This is mock data. Real enrichment will be connected in the next step.",
-      };
+      return runEnrichmentPipeline(input.company_name, input.partita_iva);
     },
   }),
 

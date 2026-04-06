@@ -4,10 +4,16 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { ChatMessage } from "./chat-message";
 import { ChatInput } from "./chat-input";
 
-interface Message {
+export interface ToolResult {
+  toolName: string;
+  result: Record<string, unknown>;
+}
+
+export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  toolResults?: ToolResult[];
 }
 
 const WELCOME_MESSAGE: Message = {
@@ -45,51 +51,159 @@ export function ChatContainer() {
     setIsLoading(true);
 
     try {
+      // Build messages for API — only role + content, skip welcome
+      const apiMessages = [
+        ...messages.filter((m) => m.id !== "welcome"),
+        userMessage,
+      ].map(({ role, content }) => ({ role, content }));
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messages: [...messages.filter((m) => m.id !== "welcome"), userMessage].map(
-            ({ role, content }) => ({ role, content })
-          ),
-        }),
+        body: JSON.stringify({ messages: apiMessages }),
       });
 
-      if (!response.ok) throw new Error("Chat request failed");
+      if (!response.ok) {
+        throw new Error(`Chat request failed: ${response.status}`);
+      }
 
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
 
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: "",
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
+      // Track the current assistant message being built
+      const assistantId = (Date.now() + 1).toString();
+      let accumulatedContent = "";
+      const accumulatedToolResults: ToolResult[] = [];
+
+      // Add empty assistant message
+      setMessages((prev) => [
+        ...prev,
+        { id: assistantId, role: "assistant", content: "" },
+      ]);
 
       if (reader) {
+        let buffer = "";
+
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value, { stream: true });
-          // Parse SSE data lines from Vercel AI SDK stream
-          const lines = chunk.split("\n");
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
           for (const line of lines) {
-            // Vercel AI SDK text stream protocol: lines starting with 0: are text deltas
+            if (!line.trim()) continue;
+
+            // Vercel AI SDK Data Stream Protocol
+            // 0: text delta
             if (line.startsWith("0:")) {
               try {
                 const text = JSON.parse(line.slice(2));
-                assistantMessage.content += text;
+                accumulatedContent += text;
                 setMessages((prev) =>
                   prev.map((m) =>
-                    m.id === assistantMessage.id
-                      ? { ...m, content: assistantMessage.content }
+                    m.id === assistantId
+                      ? { ...m, content: accumulatedContent }
                       : m
                   )
                 );
               } catch {
-                // skip unparseable lines
+                // skip unparseable
+              }
+            }
+
+            // a: tool result
+            if (line.startsWith("a:")) {
+              try {
+                const parsed = JSON.parse(line.slice(2));
+                if (parsed && parsed.length >= 2) {
+                  const toolResult: ToolResult = {
+                    toolName: parsed[0]?.toolName || "unknown",
+                    result:
+                      typeof parsed[0]?.result === "string"
+                        ? JSON.parse(parsed[0].result)
+                        : parsed[0]?.result || {},
+                  };
+                  accumulatedToolResults.push(toolResult);
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantId
+                        ? {
+                            ...m,
+                            toolResults: [...accumulatedToolResults],
+                          }
+                        : m
+                    )
+                  );
+                }
+              } catch {
+                // Try alternate format
+                try {
+                  const parsed = JSON.parse(line.slice(2));
+                  if (parsed?.toolName && parsed?.result) {
+                    const toolResult: ToolResult = {
+                      toolName: parsed.toolName,
+                      result:
+                        typeof parsed.result === "string"
+                          ? JSON.parse(parsed.result)
+                          : parsed.result,
+                    };
+                    accumulatedToolResults.push(toolResult);
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.id === assistantId
+                          ? {
+                              ...m,
+                              toolResults: [...accumulatedToolResults],
+                            }
+                          : m
+                      )
+                    );
+                  }
+                } catch {
+                  // skip
+                }
+              }
+            }
+
+            // 9: tool call start (we can show a loading state)
+            if (line.startsWith("9:")) {
+              try {
+                const parsed = JSON.parse(line.slice(2));
+                const toolName = parsed?.toolName || parsed?.[0]?.toolName;
+                if (toolName === "run_enrichment") {
+                  // Show a temporary "researching" indicator
+                  accumulatedContent += "\n\n*Researching your company...*\n";
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantId
+                        ? { ...m, content: accumulatedContent }
+                        : m
+                    )
+                  );
+                }
+              } catch {
+                // skip
+              }
+            }
+
+            // 3: error
+            if (line.startsWith("3:")) {
+              try {
+                const errorMsg = JSON.parse(line.slice(2));
+                accumulatedContent +=
+                  "\n\nI encountered an issue. Please try again.";
+                console.error("Stream error:", errorMsg);
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantId
+                      ? { ...m, content: accumulatedContent }
+                      : m
+                  )
+                );
+              } catch {
+                // skip
               }
             }
           }
@@ -103,7 +217,7 @@ export function ChatContainer() {
           id: (Date.now() + 2).toString(),
           role: "assistant",
           content:
-            "I'm having trouble connecting right now. Please try again in a moment.",
+            "I'm having trouble connecting right now. Please check that your API key is configured and try again.",
         },
       ]);
     } finally {
@@ -120,6 +234,7 @@ export function ChatContainer() {
             key={message.id}
             role={message.role}
             content={message.content}
+            toolResults={message.toolResults}
           />
         ))}
         {isLoading &&

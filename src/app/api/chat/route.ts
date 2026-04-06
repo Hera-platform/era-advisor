@@ -1,28 +1,21 @@
-import { NextRequest } from "next/server";
+import { streamText, stepCountIs } from "ai";
+import { anthropic } from "@ai-sdk/anthropic";
+import { ADVISOR_SYSTEM_PROMPT } from "@/lib/ai/advisor-prompt";
+import { advisorTools } from "@/lib/ai/tools";
 
-// Placeholder chat endpoint — will be replaced with Claude in B2
-export async function POST(req: NextRequest) {
+export const runtime = "nodejs";
+
+export async function POST(req: Request) {
   const { messages } = await req.json();
-  const lastMessage = messages[messages.length - 1];
 
-  // Simple placeholder response
-  const response = `I received your message: "${lastMessage?.content}"\n\nThis is a placeholder response. The AI advisor (powered by Claude) will be connected in the next step.`;
-
-  // Stream the response using Vercel AI SDK text stream protocol
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    start(controller) {
-      // Send as a single text delta (Vercel AI SDK format: 0:"text")
-      controller.enqueue(
-        encoder.encode(`0:${JSON.stringify(response)}\n`)
-      );
-      controller.close();
-    },
+  const result = streamText({
+    model: anthropic("claude-sonnet-4-20250514"),
+    system: ADVISOR_SYSTEM_PROMPT,
+    messages,
+    tools: advisorTools,
+    stopWhen: stepCountIs(5),
+    maxRetries: 2,
   });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-    },
-  });
+  return result.toUIMessageStreamResponse();
 }

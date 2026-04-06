@@ -283,7 +283,7 @@ function EnrichmentCard({ data }: { data: EnrichmentResult }) {
               {revenueGrowth && (
                 <FinancialChip
                   label="YoY Growth"
-                  value={`+${revenueGrowth.value.toFixed(1)}%`}
+                  value={`${revenueGrowth.value >= 0 ? "+" : ""}${revenueGrowth.value.toFixed(1)}%`}
                   source={revenueGrowth.source}
                 />
               )}

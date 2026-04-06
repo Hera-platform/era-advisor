@@ -51,12 +51,29 @@ export function ChatContainer() {
   // Auth state
   const { user } = useAuth();
 
-  // Initialize session from localStorage
+  // Initialize session from localStorage + load existing conversation
   useEffect(() => {
     const token = getOrCreateSessionToken();
     setSessionToken(token);
     setSellerId(getStoredSellerId());
     setDealId(getStoredDealId());
+
+    // Try to reload conversation from server
+    fetch(`/api/conversation?session_token=${token}`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (data?.conversation?.messages?.length > 0) {
+          const restored: Message[] = data.conversation.messages.map(
+            (m: { role: string; content: string }, i: number) => ({
+              id: `restored-${i}`,
+              role: m.role as "user" | "assistant",
+              content: m.content,
+            })
+          );
+          setMessages([WELCOME_MESSAGE, ...restored]);
+        }
+      })
+      .catch(() => {/* ignore — fresh session */});
   }, []);
 
   // When user authenticates, resolve seller_id from server
@@ -236,17 +253,26 @@ export function ChatContainer() {
         setStoredDealId(newDealId);
         setDealId(newDealId);
 
-        // Fetch the seller_id created server-side
-        const syncRes = await fetch(
-          `/api/session/sync?session_token=${sessionToken}`
-        );
-        if (syncRes.ok) {
-          const syncData = await syncRes.json();
-          if (syncData.seller_id) {
-            setStoredSellerId(syncData.seller_id);
-            setSellerId(syncData.seller_id);
+        // Fetch the seller_id created server-side (retry once after short delay
+        // since onFinish may not have persisted yet)
+        const fetchSellerId = async (retries = 2): Promise<void> => {
+          const syncRes = await fetch(
+            `/api/session/sync?session_token=${sessionToken}`
+          );
+          if (syncRes.ok) {
+            const syncData = await syncRes.json();
+            if (syncData.seller_id) {
+              setStoredSellerId(syncData.seller_id);
+              setSellerId(syncData.seller_id);
+              return;
+            }
           }
-        }
+          if (retries > 0) {
+            await new Promise((r) => setTimeout(r, 1000));
+            return fetchSellerId(retries - 1);
+          }
+        };
+        await fetchSellerId();
 
         // Show auth gate if user is anonymous
         if (!user) {

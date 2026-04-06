@@ -12,7 +12,7 @@ export async function createAnonymousSeller(sessionToken: string) {
   const { data, error } = await db
     .from("sellers")
     .insert({
-      email: `anonymous-${sessionToken.slice(0, 8)}@era.temp`,
+      email: `anonymous-${crypto.randomUUID()}@era.temp`,
       is_anonymous: true,
     })
     .select()

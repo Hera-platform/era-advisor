@@ -1,6 +1,7 @@
 # Manual Steps Required
 
 Complete these steps once all code is built.
+Last updated: 2026-04-06 (after Phase C completion)
 
 ## 1. Create Supabase Project
 - Go to https://supabase.com/dashboard → New Project

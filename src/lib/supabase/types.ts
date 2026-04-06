@@ -14,7 +14,8 @@ export interface Seller {
   id: string;
   email: string;
   name: string | null;
-  auth_id: string;
+  auth_id: string | null;
+  is_anonymous: boolean;
   created_at: string;
 }
 

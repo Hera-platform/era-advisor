@@ -3,6 +3,15 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { ChatMessage } from "./chat-message";
 import { ChatInput } from "./chat-input";
+import { AuthGate, type AuthGateTrigger } from "./auth-gate";
+import { useAuth } from "@/hooks/use-auth";
+import {
+  getOrCreateSessionToken,
+  getStoredSellerId,
+  setStoredSellerId,
+  getStoredDealId,
+  setStoredDealId,
+} from "@/lib/session";
 
 export interface ToolResult {
   toolName: string;
@@ -29,6 +38,43 @@ export function ChatContainer() {
   const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Session & deal state
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [sellerId, setSellerId] = useState<string | null>(null);
+  const [dealId, setDealId] = useState<string | null>(null);
+
+  // Auth gate
+  const [showAuthGate, setShowAuthGate] = useState(false);
+  const [authGateTrigger, setAuthGateTrigger] =
+    useState<AuthGateTrigger>("deal_created");
+
+  // Auth state
+  const { user } = useAuth();
+
+  // Initialize session from localStorage
+  useEffect(() => {
+    const token = getOrCreateSessionToken();
+    setSessionToken(token);
+    setSellerId(getStoredSellerId());
+    setDealId(getStoredDealId());
+  }, []);
+
+  // When user authenticates, resolve seller_id from server
+  useEffect(() => {
+    if (user) {
+      setShowAuthGate(false);
+      fetch("/api/seller/me")
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.seller_id) {
+            setSellerId(data.seller_id);
+            setStoredSellerId(data.seller_id);
+          }
+        })
+        .catch(console.error);
+    }
+  }, [user]);
+
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, []);
@@ -38,7 +84,7 @@ export function ChatContainer() {
   }, [messages, scrollToBottom]);
 
   const handleSubmit = async () => {
-    if (!input.trim() || isLoading) return;
+    if (!input.trim() || isLoading || !sessionToken) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -51,7 +97,6 @@ export function ChatContainer() {
     setIsLoading(true);
 
     try {
-      // Build messages for API — only role + content, skip welcome
       const apiMessages = [
         ...messages.filter((m) => m.id !== "welcome"),
         userMessage,
@@ -60,7 +105,12 @@ export function ChatContainer() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: apiMessages }),
+        body: JSON.stringify({
+          messages: apiMessages,
+          session_token: sessionToken,
+          seller_id: sellerId,
+          deal_id: dealId,
+        }),
       });
 
       if (!response.ok) {
@@ -70,12 +120,10 @@ export function ChatContainer() {
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
 
-      // Track the current assistant message being built
       const assistantId = (Date.now() + 1).toString();
       let accumulatedContent = "";
       const accumulatedToolResults: ToolResult[] = [];
 
-      // Add empty assistant message
       setMessages((prev) => [
         ...prev,
         { id: assistantId, role: "assistant", content: "" },
@@ -90,12 +138,11 @@ export function ChatContainer() {
 
           buffer += decoder.decode(value, { stream: true });
           const lines = buffer.split("\n");
-          buffer = lines.pop() || ""; // Keep incomplete line in buffer
+          buffer = lines.pop() || "";
 
           for (const line of lines) {
             if (!line.trim()) continue;
 
-            // Vercel AI SDK Data Stream Protocol
             // 0: text delta
             if (line.startsWith("0:")) {
               try {
@@ -109,7 +156,7 @@ export function ChatContainer() {
                   )
                 );
               } catch {
-                // skip unparseable
+                /* skip */
               }
             }
 
@@ -117,64 +164,40 @@ export function ChatContainer() {
             if (line.startsWith("a:")) {
               try {
                 const parsed = JSON.parse(line.slice(2));
-                if (parsed && parsed.length >= 2) {
+                // Try array format first, then object format
+                const toolData = Array.isArray(parsed) ? parsed[0] : parsed;
+                if (toolData?.toolName) {
                   const toolResult: ToolResult = {
-                    toolName: parsed[0]?.toolName || "unknown",
+                    toolName: toolData.toolName,
                     result:
-                      typeof parsed[0]?.result === "string"
-                        ? JSON.parse(parsed[0].result)
-                        : parsed[0]?.result || {},
+                      typeof toolData.result === "string"
+                        ? JSON.parse(toolData.result)
+                        : toolData.result || {},
                   };
                   accumulatedToolResults.push(toolResult);
                   setMessages((prev) =>
                     prev.map((m) =>
                       m.id === assistantId
-                        ? {
-                            ...m,
-                            toolResults: [...accumulatedToolResults],
-                          }
+                        ? { ...m, toolResults: [...accumulatedToolResults] }
                         : m
                     )
                   );
                 }
               } catch {
-                // Try alternate format
-                try {
-                  const parsed = JSON.parse(line.slice(2));
-                  if (parsed?.toolName && parsed?.result) {
-                    const toolResult: ToolResult = {
-                      toolName: parsed.toolName,
-                      result:
-                        typeof parsed.result === "string"
-                          ? JSON.parse(parsed.result)
-                          : parsed.result,
-                    };
-                    accumulatedToolResults.push(toolResult);
-                    setMessages((prev) =>
-                      prev.map((m) =>
-                        m.id === assistantId
-                          ? {
-                              ...m,
-                              toolResults: [...accumulatedToolResults],
-                            }
-                          : m
-                      )
-                    );
-                  }
-                } catch {
-                  // skip
-                }
+                /* skip */
               }
             }
 
-            // 9: tool call start (we can show a loading state)
+            // 9: tool call start
             if (line.startsWith("9:")) {
               try {
                 const parsed = JSON.parse(line.slice(2));
-                const toolName = parsed?.toolName || parsed?.[0]?.toolName;
+                const toolName = Array.isArray(parsed)
+                  ? parsed[0]?.toolName
+                  : parsed?.toolName;
                 if (toolName === "run_enrichment") {
-                  // Show a temporary "researching" indicator
-                  accumulatedContent += "\n\n*Researching your company...*\n";
+                  accumulatedContent +=
+                    "\n\n*Researching your company...*\n";
                   setMessages((prev) =>
                     prev.map((m) =>
                       m.id === assistantId
@@ -184,29 +207,51 @@ export function ChatContainer() {
                   );
                 }
               } catch {
-                // skip
+                /* skip */
               }
             }
 
             // 3: error
             if (line.startsWith("3:")) {
-              try {
-                const errorMsg = JSON.parse(line.slice(2));
-                accumulatedContent +=
-                  "\n\nI encountered an issue. Please try again.";
-                console.error("Stream error:", errorMsg);
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantId
-                      ? { ...m, content: accumulatedContent }
-                      : m
-                  )
-                );
-              } catch {
-                // skip
-              }
+              accumulatedContent +=
+                "\n\nI encountered an issue. Please try again.";
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, content: accumulatedContent }
+                    : m
+                )
+              );
             }
           }
+        }
+      }
+
+      // After stream ends: check for new deal creation
+      const createDealResult = accumulatedToolResults.find(
+        (tr) => tr.toolName === "create_deal"
+      );
+      if (createDealResult?.result?.deal_id && !dealId) {
+        const newDealId = createDealResult.result.deal_id as string;
+        setStoredDealId(newDealId);
+        setDealId(newDealId);
+
+        // Fetch the seller_id created server-side
+        const syncRes = await fetch(
+          `/api/session/sync?session_token=${sessionToken}`
+        );
+        if (syncRes.ok) {
+          const syncData = await syncRes.json();
+          if (syncData.seller_id) {
+            setStoredSellerId(syncData.seller_id);
+            setSellerId(syncData.seller_id);
+          }
+        }
+
+        // Show auth gate if user is anonymous
+        if (!user) {
+          setAuthGateTrigger("deal_created");
+          setShowAuthGate(true);
         }
       }
     } catch (error) {
@@ -251,6 +296,19 @@ export function ChatContainer() {
           )}
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Auth gate — appears above input when triggered */}
+      {showAuthGate && !user && (
+        <div className="px-4 pb-2">
+          <AuthGate
+            trigger={authGateTrigger}
+            sellerId={sellerId}
+            sessionToken={sessionToken}
+            onSuccess={() => setShowAuthGate(false)}
+            onDismiss={() => setShowAuthGate(false)}
+          />
+        </div>
+      )}
 
       {/* Input */}
       <div className="sticky bottom-0 bg-gradient-to-t from-navy from-80% to-transparent px-4 pb-6 pt-4">

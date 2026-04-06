@@ -7,6 +7,7 @@ import {
   updateDeal,
 } from "@/lib/supabase/deals";
 import { generateTeaserContent } from "@/lib/ai/teaser-generator";
+import { generateInfoMemoContent } from "@/lib/ai/info-memo-generator";
 
 export interface ToolContext {
   sessionToken: string;
@@ -178,25 +179,35 @@ export function createAdvisorTools(context: ToolContext) {
         deal_id: z.string().describe("The deal ID to generate an info memo for"),
       }),
       execute: async (input) => {
-        // Stub: will generate real info memo in C2
-        console.log("[ERA] generate_info_memo called:", input);
-        return {
-          deal_id: input.deal_id,
-          material_id: crypto.randomUUID(),
-          type: "info_memo",
-          status: "draft",
-          sections: [
-            "Executive Summary",
-            "Company Overview",
-            "Products & Services",
-            "Market Analysis",
-            "Financial Overview",
-            "Growth Opportunities",
-            "Transaction Overview",
-          ],
-          message:
-            "Information Memorandum generated with 7 sections.",
-        };
+        console.log("[ERA] generate_info_memo called:", input.deal_id);
+        try {
+          const { material_id, content, status } =
+            await generateInfoMemoContent(input.deal_id);
+
+          return {
+            deal_id: input.deal_id,
+            material_id,
+            type: "info_memo" as const,
+            status,
+            executive_summary: content.executive_summary,
+            company_overview: content.company_overview,
+            products_services: content.products_services,
+            market_analysis: content.market_analysis,
+            financial_overview: content.financial_overview,
+            growth_opportunities: content.growth_opportunities,
+            transaction_overview: content.transaction_overview,
+          };
+        } catch (err) {
+          console.error("[ERA] generate_info_memo failed:", err);
+          return {
+            deal_id: input.deal_id,
+            material_id: null,
+            type: "info_memo" as const,
+            status: "error" as const,
+            error:
+              err instanceof Error ? err.message : "Generation failed",
+          };
+        }
       },
     }),
   };

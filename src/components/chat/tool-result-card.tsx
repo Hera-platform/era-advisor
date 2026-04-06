@@ -9,7 +9,8 @@ import type {
 } from "@/lib/enrichment/types";
 import { SOURCE_LABELS, SOURCE_COLORS } from "@/lib/enrichment/types";
 import { TeaserPreview } from "./teaser-preview";
-import type { TeaserContent } from "@/lib/supabase/types";
+import { InfoMemoPreview } from "./info-memo-preview";
+import type { TeaserContent, InfoMemoContent } from "@/lib/supabase/types";
 
 interface ToolResultCardProps {
   toolName: string;
@@ -60,7 +61,32 @@ export function ToolResultCard({
     );
   }
   if (toolName === "generate_info_memo") {
-    return <MaterialCard type="Information Memorandum" data={result} />;
+    if (result.status === "error") {
+      return (
+        <GenerationErrorCard
+          type="Info Memo"
+          error={String(result.error ?? "Unknown error")}
+        />
+      );
+    }
+    const content: InfoMemoContent = {
+      executive_summary: String(result.executive_summary ?? ""),
+      company_overview: String(result.company_overview ?? ""),
+      products_services: String(result.products_services ?? ""),
+      market_analysis: String(result.market_analysis ?? ""),
+      financial_overview: String(result.financial_overview ?? ""),
+      growth_opportunities: String(result.growth_opportunities ?? ""),
+      transaction_overview: String(result.transaction_overview ?? ""),
+    };
+    return (
+      <InfoMemoPreview
+        content={content}
+        materialId={String(result.material_id ?? "")}
+        status={String(result.status ?? "draft")}
+        isAuthenticated={isAuthenticated}
+        onDownload={onDownload}
+      />
+    );
   }
   return null;
 }

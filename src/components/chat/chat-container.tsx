@@ -147,7 +147,7 @@ export function ChatContainer() {
       ]);
 
       if (reader) {
-        // toTextStreamResponse sends plain text chunks — no protocol prefixes
+        // toTextStreamResponse sends plain text chunks
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -163,6 +163,21 @@ export function ChatContainer() {
               )
             );
           }
+        }
+
+        // If stream ended with no content, show error
+        if (!accumulatedContent.trim()) {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId
+                ? {
+                    ...m,
+                    content:
+                      "I'm having trouble responding right now. The AI model may be temporarily rate-limited. Please wait a moment and try again.",
+                  }
+                : m
+            )
+          );
         }
       }
 

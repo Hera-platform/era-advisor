@@ -2,17 +2,14 @@ import { createOpenAI } from "@ai-sdk/openai";
 
 /**
  * OpenRouter model provider.
- * Uses the OpenAI-compatible API with OpenRouter's base URL.
  *
- * Free models with decent tool calling (verified 2026-04-04):
+ * Free models (limited tool calling, rate-limited):
  * - qwen/qwen3.6-plus:free
- * - qwen/qwen3-coder:free
- * - nvidia/nemotron-3-super-120b-a12b:free
  * - meta-llama/llama-3.3-70b-instruct:free
  *
- * For production, switch to:
+ * For production (reliable tool calling + higher limits):
  * - anthropic/claude-sonnet-4-20250514
- * - anthropic/claude-opus-4-20250514
+ * - openai/gpt-4o-mini
  */
 
 const openrouter = createOpenAI({
@@ -24,11 +21,14 @@ const openrouter = createOpenAI({
   },
 });
 
-// Chat model — used for the main conversation + tool calling
-// NOTE: Must use .chat() — the default provider() uses OpenAI Responses API
-// which OpenRouter does not support. .chat() uses /chat/completions.
+// Chat model — main conversation
+// Using .chat() to hit /chat/completions (not /responses)
 export const chatModel = openrouter.chat("qwen/qwen3.6-plus:free");
 
-// Generation model — used for teaser/info memo document generation
-// (same model for now, can split later for quality/cost optimization)
+// Generation model — teaser/info memo documents
 export const generationModel = openrouter.chat("qwen/qwen3.6-plus:free");
+
+// Whether the current model reliably supports tool calling
+// Free models on OpenRouter have aggressive rate limits on multi-step tool calls
+// Set to false to disable tools and let the AI handle everything conversationally
+export const TOOLS_ENABLED = false;

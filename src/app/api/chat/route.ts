@@ -1,6 +1,6 @@
 import { streamText, stepCountIs } from "ai";
 import { ADVISOR_SYSTEM_PROMPT } from "@/lib/ai/advisor-prompt";
-import { chatModel } from "@/lib/ai/model";
+import { chatModel, TOOLS_ENABLED } from "@/lib/ai/model";
 import { createAdvisorTools, type ToolContext } from "@/lib/ai/tools";
 import { createOrUpdateConversation } from "@/lib/supabase/deals";
 import type { ChatMessage } from "@/lib/supabase/types";
@@ -23,57 +23,62 @@ export async function POST(req: Request) {
     sellerId: seller_id ?? null,
   };
 
+  // Build streamText config — tools only if the model supports them
+  const toolsConfig = TOOLS_ENABLED
+    ? {
+        tools: createAdvisorTools(context),
+        stopWhen: stepCountIs(5),
+      }
+    : {};
+
   let result;
   try {
     result = streamText({
       model: chatModel,
       system: ADVISOR_SYSTEM_PROMPT,
       messages,
-      tools: createAdvisorTools(context),
-      stopWhen: stepCountIs(5),
+      ...toolsConfig,
       maxRetries: 2,
       onError: ({ error }) => {
         console.error("[CHAT] Stream error:", error);
       },
       onFinish: async ({ response }) => {
-      // Persist conversation with BOTH user and AI messages
-      if (!session_token) return;
+        if (!session_token) return;
 
-      const effectiveSellerId = context.resolvedSellerId ?? seller_id;
-      const effectiveDealId = context.createdDealId ?? deal_id ?? null;
+        const effectiveSellerId = context.resolvedSellerId ?? seller_id;
+        const effectiveDealId = context.createdDealId ?? deal_id ?? null;
 
-      if (effectiveSellerId) {
-        // Build full message history including AI response
-        const assistantMessages: ChatMessage[] = response.messages
-          .filter((m) => m.role === "assistant")
-          .map((m) => ({
-            role: "assistant" as const,
-            content:
-              typeof m.content === "string"
-                ? m.content
-                : JSON.stringify(m.content),
-            timestamp: new Date().toISOString(),
-          }));
+        if (effectiveSellerId) {
+          const assistantMessages: ChatMessage[] = response.messages
+            .filter((m) => m.role === "assistant")
+            .map((m) => ({
+              role: "assistant" as const,
+              content:
+                typeof m.content === "string"
+                  ? m.content
+                  : JSON.stringify(m.content),
+              timestamp: new Date().toISOString(),
+            }));
 
-        const allMessages: ChatMessage[] = [
-          ...messages.map((m: { role: string; content: string }) => ({
-            role: m.role as "user" | "assistant",
-            content: m.content,
-            timestamp: new Date().toISOString(),
-          })),
-          ...assistantMessages,
-        ];
+          const allMessages: ChatMessage[] = [
+            ...messages.map((m: { role: string; content: string }) => ({
+              role: m.role as "user" | "assistant",
+              content: m.content,
+              timestamp: new Date().toISOString(),
+            })),
+            ...assistantMessages,
+          ];
 
-        createOrUpdateConversation(
-          session_token,
-          effectiveSellerId,
-          effectiveDealId,
-          allMessages
-        ).catch((err) =>
-          console.error("[CHAT] Conversation persist error:", err)
-        );
-      }
-    },
+          createOrUpdateConversation(
+            session_token,
+            effectiveSellerId,
+            effectiveDealId,
+            allMessages
+          ).catch((err) =>
+            console.error("[CHAT] Conversation persist error:", err)
+          );
+        }
+      },
     });
   } catch (error) {
     console.error("[CHAT] Failed to create stream:", error);

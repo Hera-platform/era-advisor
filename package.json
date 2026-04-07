@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.66",
+    "@ai-sdk/openai": "^3.0.51",
     "@anthropic-ai/sdk": "^0.82.0",
     "@cloudflare/next-on-pages": "^1.13.16",
     "@mendable/firecrawl-js": "^4.18.1",

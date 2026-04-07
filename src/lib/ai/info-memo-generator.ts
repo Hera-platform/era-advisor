@@ -1,5 +1,5 @@
 import { generateText } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
+import { generationModel } from "@/lib/ai/model";
 import { getDealById, saveMaterial } from "@/lib/supabase/deals";
 import type { InfoMemoContent } from "@/lib/supabase/types";
 
@@ -18,7 +18,7 @@ export async function generateInfoMemoContent(
   const prompt = buildInfoMemoPrompt(deal);
 
   const { text } = await generateText({
-    model: anthropic("claude-sonnet-4-20250514"),
+    model: generationModel,
     messages: [{ role: "user", content: prompt }],
     temperature: 0.3,
     maxOutputTokens: 4000,

@@ -1,6 +1,6 @@
 import { streamText, stepCountIs } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
 import { ADVISOR_SYSTEM_PROMPT } from "@/lib/ai/advisor-prompt";
+import { chatModel } from "@/lib/ai/model";
 import { createAdvisorTools, type ToolContext } from "@/lib/ai/tools";
 import { createOrUpdateConversation } from "@/lib/supabase/deals";
 import type { ChatMessage } from "@/lib/supabase/types";
@@ -8,21 +8,34 @@ import type { ChatMessage } from "@/lib/supabase/types";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  const { messages, session_token, seller_id, deal_id } = await req.json();
+  let messages, session_token, seller_id, deal_id;
+  try {
+    ({ messages, session_token, seller_id, deal_id } = await req.json());
+  } catch {
+    return new Response(JSON.stringify({ error: "Invalid request body" }), {
+      status: 400,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 
   const context: ToolContext = {
     sessionToken: session_token ?? crypto.randomUUID(),
     sellerId: seller_id ?? null,
   };
 
-  const result = streamText({
-    model: anthropic("claude-sonnet-4-20250514"),
-    system: ADVISOR_SYSTEM_PROMPT,
-    messages,
-    tools: createAdvisorTools(context),
-    stopWhen: stepCountIs(5),
-    maxRetries: 2,
-    onFinish: async ({ response }) => {
+  let result;
+  try {
+    result = streamText({
+      model: chatModel,
+      system: ADVISOR_SYSTEM_PROMPT,
+      messages,
+      tools: createAdvisorTools(context),
+      stopWhen: stepCountIs(5),
+      maxRetries: 2,
+      onError: ({ error }) => {
+        console.error("[CHAT] Stream error:", error);
+      },
+      onFinish: async ({ response }) => {
       // Persist conversation with BOTH user and AI messages
       if (!session_token) return;
 
@@ -61,7 +74,14 @@ export async function POST(req: Request) {
         );
       }
     },
-  });
+    });
+  } catch (error) {
+    console.error("[CHAT] Failed to create stream:", error);
+    return new Response(
+      JSON.stringify({ error: "Failed to start chat stream" }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
 
   return result.toUIMessageStreamResponse();
 }

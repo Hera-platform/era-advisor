@@ -147,99 +147,21 @@ export function ChatContainer() {
       ]);
 
       if (reader) {
-        let buffer = "";
-
+        // toTextStreamResponse sends plain text chunks — no protocol prefixes
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            if (!line.trim()) continue;
-
-            // 0: text delta
-            if (line.startsWith("0:")) {
-              try {
-                const text = JSON.parse(line.slice(2));
-                accumulatedContent += text;
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === assistantId
-                      ? { ...m, content: accumulatedContent }
-                      : m
-                  )
-                );
-              } catch {
-                /* skip */
-              }
-            }
-
-            // a: tool result
-            if (line.startsWith("a:")) {
-              try {
-                const parsed = JSON.parse(line.slice(2));
-                // Try array format first, then object format
-                const toolData = Array.isArray(parsed) ? parsed[0] : parsed;
-                if (toolData?.toolName) {
-                  const toolResult: ToolResult = {
-                    toolName: toolData.toolName,
-                    result:
-                      typeof toolData.result === "string"
-                        ? JSON.parse(toolData.result)
-                        : toolData.result || {},
-                  };
-                  accumulatedToolResults.push(toolResult);
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === assistantId
-                        ? { ...m, toolResults: [...accumulatedToolResults] }
-                        : m
-                    )
-                  );
-                }
-              } catch {
-                /* skip */
-              }
-            }
-
-            // 9: tool call start
-            if (line.startsWith("9:")) {
-              try {
-                const parsed = JSON.parse(line.slice(2));
-                const toolName = Array.isArray(parsed)
-                  ? parsed[0]?.toolName
-                  : parsed?.toolName;
-                if (toolName === "run_enrichment") {
-                  accumulatedContent +=
-                    "\n\n*Researching your company...*\n";
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === assistantId
-                        ? { ...m, content: accumulatedContent }
-                        : m
-                    )
-                  );
-                }
-              } catch {
-                /* skip */
-              }
-            }
-
-            // 3: error
-            if (line.startsWith("3:")) {
-              accumulatedContent +=
-                "\n\nI encountered an issue. Please try again.";
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === assistantId
-                    ? { ...m, content: accumulatedContent }
-                    : m
-                )
-              );
-            }
+          const chunk = decoder.decode(value, { stream: true });
+          if (chunk) {
+            accumulatedContent += chunk;
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, content: accumulatedContent }
+                  : m
+              )
+            );
           }
         }
       }
